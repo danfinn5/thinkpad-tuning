@@ -1,0 +1,6 @@
+# AI tool artifacts
+.aider*
+.cursor/
+
+# Stray files
+StylesPath = styles.txt
