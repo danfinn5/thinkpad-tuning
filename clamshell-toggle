@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+# clamshell-toggle — Toggle lid close behavior (suspend ↔ ignore)
+#
+# Reads the current PowerDevil LidAction and flips it:
+#   0 (do nothing) → 1 (suspend)
+#   1 (suspend)    → 0 (do nothing)
+#
+# Also controls InhibitLidActionWhenExternalMonitorPresent so
+# the toggle is always authoritative — no hidden overrides.
+#
+# Usage:
+#   clamshell-toggle          # toggle
+#   clamshell-toggle on       # force clamshell on (lid ignored)
+#   clamshell-toggle off      # force clamshell off (lid suspends)
+#   clamshell-toggle status   # print current state
+
+set_lid_action() {
+    local value="$1"
+    local inhibit_external
+
+    if [ "$value" = "0" ]; then
+        inhibit_external="true"
+    else
+        inhibit_external="false"
+    fi
+
+    kwriteconfig6 --file powerdevilrc \
+        --group "AC" --group "SuspendAndShutdown" \
+        --key "LidAction" "$value"
+    kwriteconfig6 --file powerdevilrc \
+        --group "Battery" --group "SuspendAndShutdown" \
+        --key "LidAction" "$value"
+    kwriteconfig6 --file powerdevilrc \
+        --group "AC" --group "SuspendAndShutdown" \
+        --key "InhibitLidActionWhenExternalMonitorPresent" "$inhibit_external"
+
+    # Restart PowerDevil so it re-reads config from disk
+    # (the DBus reparseConfiguration method doesn't reliably pick up LidAction changes)
+    systemctl --user restart plasma-powerdevil.service 2>/dev/null || true
+}
+
+get_lid_action() {
+    kreadconfig6 --file powerdevilrc \
+        --group "AC" --group "SuspendAndShutdown" \
+        --key "LidAction" 2>/dev/null
+}
+
+current=$(get_lid_action)
+
+case "${1:-toggle}" in
+    on)
+        set_lid_action 0
+        notify-send "Clamshell Mode" "ON — lid close ignored" -i video-display -t 3000
+        ;;
+    off)
+        set_lid_action 1
+        notify-send "Clamshell Mode" "OFF — lid close will suspend" -i system-suspend -t 3000
+        ;;
+    toggle)
+        if [ "$current" = "0" ]; then
+            set_lid_action 1
+            notify-send "Clamshell Mode" "OFF — lid close will suspend" -i system-suspend -t 3000
+        else
+            set_lid_action 0
+            notify-send "Clamshell Mode" "ON — lid close ignored" -i video-display -t 3000
+        fi
+        ;;
+    status)
+        if [ "$current" = "0" ]; then
+            echo "Clamshell mode is ON (LidAction=0)"
+            echo "Lid close will do nothing"
+        else
+            echo "Clamshell mode is OFF (LidAction=${current:-1})"
+            echo "Lid close will suspend"
+        fi
+        ;;
+    *)
+        echo "Usage: clamshell-toggle [on|off|toggle|status]"
+        exit 1
+        ;;
+esac
